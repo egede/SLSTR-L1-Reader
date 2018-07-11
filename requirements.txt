@@ -1,0 +1,6 @@
+pytest
+mock
+matplotlib
+numpy
+netCDF4
+scipy
