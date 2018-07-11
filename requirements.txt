@@ -1,5 +1,3 @@
-SLSTR-L1-Reader
-
 pytest
 mock
 matplotlib
