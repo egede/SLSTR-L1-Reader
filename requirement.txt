@@ -1,0 +1,8 @@
+SLSTR-L1-Reader
+
+pytest
+mock
+matplotlib
+numpy
+netCDF4
+scipy
