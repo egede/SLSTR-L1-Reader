@@ -160,6 +160,7 @@ class Reader:
         
         solar_path    = np.where(np.isfinite(geometry.variables['solar_path_tn'][:]),
                                     geometry.variables['solar_path_tn'][:], 0.0)
+
         solar_azimuth = np.where(np.isfinite(geometry.variables['solar_azimuth_tn'][:]),
                                     geometry.variables['solar_azimuth_tn'][:], 0.0)
         solar_zenith  = np.where(np.isfinite(geometry.variables['solar_zenith_tn'][:]),
@@ -182,7 +183,7 @@ class Reader:
 
         geometry_rows = np.array(range(geometry.dimensions['rows'].size))
         geometry_cols = np.array(range(geometry.dimensions['columns'].size))
- 
+
         f_solp = interpolate.RectBivariateSpline(geometry_rows, geometry_cols, solar_path)
         self.solar_path = f_solp(y, x)
  
