@@ -1,6 +1,5 @@
+# This first line will grab the requirements from setup.py
+-e .
+
 pytest
 mock
-matplotlib
-numpy
-netCDF4
-scipy
