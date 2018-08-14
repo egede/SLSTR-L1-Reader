@@ -3,9 +3,10 @@
 # Licence  : GSLv3
 # Created  : July 2018
 #
-from netCDF4 import Dataset
-import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib.pyplot as plt
+
+from netCDF4 import Dataset
 from scipy import interpolate
 from time import time
 from os.path import join
@@ -19,7 +20,7 @@ class Reader:
     def __init__(self, path, view='an'):
         """
         path: String that gives the directory the files are located in
-        view: Two letter code for Which channel and view to use
+        view: Two letter code for which channel and view to use
                 Channels are a,b or c
                 View is oblique (o) or nadir (n)
         """
@@ -48,9 +49,9 @@ class Reader:
         self.confidence_flag = 0
         self.pointing_flag = 0
         self.bayesian_cloud=0
-        self.dtor = 0.017453292
+        self.dtor = 2.0*np.pi/360.
         self.first = True
-
+        self.solar_irradiance = {}
 
     def read_channel(self, channel):
         """Read in a given channel. Allowed channels are listed in self.all_channels.
@@ -85,7 +86,19 @@ class Reader:
 
         self.channels.add(channel)
         self.first = False
-            
+
+    def read_reflectance(self, channel):
+        """Read in a given channel and convert the input to a reflectance"""
+
+        if channel+'r' in self.channels:
+            return
+
+        self.read_channel(channel)
+        self.read_solar_irradiance(channel)
+        self.image[channel+'r'] = self.image[channel] / (self.solar_irradiance[channel] * self.mu0) * np.pi
+        self.channels.add(channel+'r')
+        
+        
     def read_tir(self):
 
         valid_tir_views = ['in', 'io']
@@ -152,6 +165,7 @@ class Reader:
         t0 = time()
         f = interpolate.RectBivariateSpline(np.array(range(geometry.dimensions['rows'].size)), np.array(range(geometry.dimensions['columns'].size)), solar_zenith_nonans)
         self.solar_zenith = f(y, x)
+        self.mu0 = np.where(self.solar_zenith < 90, np.cos(self.dtor * self.solar_zenith), 1.0)
         #print ('interpolation', time() - t0)
 
     def read_geometry(self, cdata):
@@ -189,6 +203,7 @@ class Reader:
  
         f_solz = interpolate.RectBivariateSpline(geometry_rows, geometry_cols, solar_zenith)
         self.solar_zenith = f_solz(y, x)
+        self.mu0 = np.where(self.solar_zenith < 90, np.cos(self.dtor * self.solar_zenith), 1.0)
  
         f_sola = interpolate.RectBivariateSpline(geometry_rows, geometry_cols, solar_azimuth)
         self.solar_azimuth = f_sola(y, x)
@@ -202,6 +217,13 @@ class Reader:
         f_sata = interpolate.RectBivariateSpline(geometry_rows, geometry_cols, sat_azimuth)
         self.sat_azimuth = f_sata(y, x)
 
+
+    def read_solar_irradiance(self, channel):
+        """Read the solar irradiance as required to obtain reflectance."""
+        
+        # Solar irradiance values are given for each detector separately, but all have same value, so just take first one for each channel here.
+        self.solar_irradiance[channel] = Dataset(join(self.path,channel+'_quality_'+self.view+'.nc')).variables[channel+'_solar_irradiance_'+self.view][0]
+        
     def plot(self, type='snow'):
         """Plot the data as different types. Allowed ones are 'snow' and 'vis'."""
         if type == 'snow':
