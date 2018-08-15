@@ -11,8 +11,18 @@ from os.path import join
 
 class Reader:
     """Sets up a primitive API for reading the netCDF files from Sentinel3, SLSTR
-    
-    """
+
+    # Data in example was obtained from http://data.ceda.ac.uk/neodc/sentinel3a/data/SLSTR/L1_RBT/2018/07/07/
+
+    # Example of plotting the reflectance from the S1, S2 and S3 channels:
+    from slstr.reader import Reader
+    from slstr.plotter import *
+    r = Reader('SLSTR/2018/07/07/S3A_SL_1_RBT____20180707T000155_20180707T000455_20180707T014632_0179_033_130_3420_SVL_O_NR_003.SEN3')
+reflectance(r, 'S1', 'S2', 'S3')
+
+    # See all possible channels
+    print(r.all_channels)
+   """
 
     
     def __init__(self, path, view='an'):
@@ -37,8 +47,6 @@ class Reader:
         self.tir_channels = set(['S7', 'S8', 'S9', 'F1', 'F2'])
 
 
-        self.latitude = [0, 0]
-        self.longitude = [0, 0]
         self.cloud_flag = 0
         self.confidence_flag = 0
         self.pointing_flag = 0
@@ -50,6 +58,9 @@ class Reader:
         self.__flag = {}
         self.__dtor = 2.0*np.pi/360.
         self.__solar_irradiance = {}
+        self.__latitude = None
+        self.__longitude = None
+        self.__mu0 = None
 
         
     def radiance(self, channel):
@@ -59,7 +70,11 @@ class Reader:
         """
 
         if not channel in self.__channels:
-            self._read_channel(channel)
+            if channel in self.tir_channels:
+                self._read_tir()
+                self._read_fire()
+            else:
+                self._read_channel(channel)
 
         return self.__image[channel]
         
@@ -85,80 +100,18 @@ class Reader:
             
         mask = 1 << offset
         return (self.__flag[type] & mask) >> offset
-        
-    def _read_channel(self, channel):
-        """Read in a given channel from file.
-        """
 
-        if channel not in self.all_channels:
-            raise Exception('The channel %s is not in the allowed list %s' % (channel, self.all_channels))
-        
-        if self.__first:
+    def latitude(self):
+        """Return the latitude of the points on the grid"""
+        if type(self.__latitude) == type(None):
             self._fill_coords()
+        return self.__latitude
 
-        valid_views = set()
-        if channel in {'S1', 'S2', 'S3'}: # Visible
-            valid_views = {'an', 'ao'}
-        elif channel in {'S4', 'S5', 'S6'}: #IR
-            valid_views = ['an', 'bn', 'ao', 'bo', 'cn', 'co']
-
-        if self.view not in valid_views:
-            raise Exception('Current view is %s but channel %s can only be read from the views %s' %
-                            (self.view, channel, valid_vis_views))
-
-        rad = Dataset(join(self.path,channel+'_radiance_'+self.view+'.nc'))
-        self.__image[channel] = rad.variables[channel+'_radiance_'+self.view][:]
-        if self.__first:
-            self.read_geometry(rad)
-
-        self.__channels.add(channel)
-        self.__first = False
-
-    def _read_reflectance(self, channel):
-        """Read in a given channel and convert the input to a reflectance"""
-
-        self._read_solar_irradiance(channel)
-        self.__image[channel+'r'] = self.radiance(channel) / (self.__solar_irradiance[channel] * self.__mu0) * np.pi
-        self.__channels.add(channel+'r')
-
-
-    def read_tir(self):
-
-        valid_tir_views = ['in', 'io']
-
-        if self.view in valid_tir_views:
-
-            s7_bt = Dataset(self.path + 'S7_BT_' + self.view + '.nc')
-            s7_bt.set_auto_scale(True)
-            self.s7_image = s7_bt.variables['S7_BT_' + self.view][:]
-
-            s8_bt = Dataset(self.path + 'S8_BT_' + self.view + '.nc')
-            s8_bt.set_auto_scale(True)
-            self.s8_image = s8_bt.variables['S8_BT_' + self.view][:]
-
-            s9_bt = Dataset(self.path + 'S9_BT_' + self.view + '.nc')
-            s9_bt.set_auto_scale(True)
-            self.s9_image = s9_bt.variables['S9_BT_' + self.view][:] 
-            
-            self.__channels.update({'S7', 'S8', 'S9'})
-            
-            #print('read solar zenith (tir)')
-            self.read_solar_zenith(s7_bt)
-
+    def longitude(self):
+        """Return the longitude of the points on the grid"""
+        if type(self.__longitude) == type(None):
             self._fill_coords()
-
-    def read_fire(self):
-        """ Read the fire channels"""
-        valid_tir_views = ['in', 'io']
-        if self.view in valid_tir_views:
-            f1_bt = Dataset(self.path + 'F1_BT_' + self.view + '.nc')
-            f1_bt.set_auto_scale(True)
-            self.f1_image = f1_bt.variables['F1_BT_' + self.view][:] 
-            f2_bt = Dataset(self.path + 'F2_BT_' + self.view + '.nc')
-            f2_bt.set_auto_scale(True)
-            self.f2_image = f2_bt.variables['F2_BT_' + self.view][:] 
-            self.__channels.update({'F1', 'F2'})
-            self._fill_coords()
+        return self.__longitude
 
     def read_tir_gains(self):
         valid_tir_views = ['in', 'io']
@@ -172,22 +125,80 @@ class Reader:
                 setattr(self, chan.lower() + '_det_temp', qual.variables[chan + '_T_detector_' + self.view][:])
                 setattr(self, chan.lower() + '_bb1_temp', qual.variables[chan + '_T_BB1_' + self.view][:])
                 setattr(self, chan.lower() + '_bb2_temp', qual.variables[chan + '_T_BB2_' + self.view][:])
+    
+    def _read_channel(self, channel):
+        """Read in a given channel from file.
+        """
 
-    def read_solar_zenith(self, cdata): # Seems just to be a subset of information in next routine.
-        geometry = Dataset(join(self.path, 'geometry_tn.nc'))
-        solar_zenith = geometry.variables['solar_zenith_tn'][:]
-        solar_zenith_nonans = np.where(np.isfinite(solar_zenith), solar_zenith, 0.0)
-        if cdata.start_offset == geometry.start_offset:
-            start_offset = 0.0
-        else:
-            start_offset = cdata.start_offset * float(cdata.resolution.split()[2]) / float(geometry.resolution.split()[2]) - geometry.start_offset
-        x = (np.array(range(cdata.dimensions['columns'].size)) - cdata.track_offset) * float(cdata.resolution.split()[1]) / float(geometry.resolution.split()[1]) + geometry.track_offset
-        y = np.array(range(cdata.dimensions['rows'].size)) * float(cdata.resolution.split()[2]) / float(geometry.resolution.split()[2]) + start_offset
-        f = interpolate.RectBivariateSpline(np.array(range(geometry.dimensions['rows'].size)), np.array(range(geometry.dimensions['columns'].size)), solar_zenith_nonans)
-        self.solar_zenith = f(y, x)
-        self.__mu0 = np.where(self.solar_zenith < 90, np.cos(self.__dtor * self.solar_zenith), 1.0)
+        if channel not in self.all_channels:
+            raise Exception('The channel %s is not in the allowed list %s' % (channel, self.all_channels))
+        
+        valid_views = set()
+        if channel in {'S1', 'S2', 'S3'}: # Visible
+            valid_views = {'an', 'ao'}
+        elif channel in {'S4', 'S5', 'S6'}: #IR
+            valid_views = ['an', 'bn', 'ao', 'bo', 'cn', 'co']
 
-    def read_geometry(self, cdata):
+        if self.view not in valid_views:
+            raise Exception('Current view is %s but channel %s can only be read from the views %s' %
+                            (self.view, channel, valid_views))
+
+        rad = Dataset(join(self.path,channel+'_radiance_'+self.view+'.nc'))
+        self.__image[channel] = rad.variables[channel+'_radiance_'+self.view][:]
+        if self.__first:
+            self._read_geometry(rad)
+
+        self.__channels.add(channel)
+        self.__first = False
+
+    def _read_reflectance(self, channel):
+        """Read in a given channel and convert the input to a reflectance"""
+
+        self._read_solar_irradiance(channel)
+        self.__image[channel+'r'] = self.radiance(channel) / (self.__solar_irradiance[channel] * self.__mu0) * np.pi
+        self.__channels.add(channel+'r')
+
+
+    def _read_tir(self):
+
+        valid_views = ['in', 'io']
+
+        if self.view not in valid_views:
+            raise Exception('Current view is %s but TIR can only be read from the views %s' %
+                            (self.view, valid_views))
+
+        s7_bt = Dataset(self.path + 'S7_BT_' + self.view + '.nc')
+        s7_bt.set_auto_scale(True)
+        self.__image['S7'] = s7_bt.variables['S7_BT_' + self.view][:]
+
+        s8_bt = Dataset(self.path + 'S8_BT_' + self.view + '.nc')
+        s8_bt.set_auto_scale(True)
+        self.__image['S8'] = s8_bt.variables['S8_BT_' + self.view][:]
+
+        s9_bt = Dataset(self.path + 'S9_BT_' + self.view + '.nc')
+        s9_bt.set_auto_scale(True)
+        self.__image['S9'] = s9_bt.variables['S9_BT_' + self.view][:] 
+
+        self.__channels.update({'S7', 'S8', 'S9'})
+
+    def _read_fire(self):
+        """ Read the fire channels"""
+
+        valid_views = ['in', 'io']
+
+        if self.view not in valid_views:
+            raise Exception('Current view is %s but fire channels can only be read from the views %s' %
+                            (self.view, valid_views))
+
+        f1_bt = Dataset(self.path + 'F1_BT_' + self.view + '.nc')
+        f1_bt.set_auto_scale(True)
+        self.__image['F1'] = f1_bt.variables['F1_BT_' + self.view][:] 
+        f2_bt = Dataset(self.path + 'F2_BT_' + self.view + '.nc')
+        f2_bt.set_auto_scale(True)
+        self.__image['F2'] = f2_bt.variables['F2_BT_' + self.view][:] 
+        self.__channels.update({'F1', 'F2'})
+
+    def _read_geometry(self, cdata):
 
         geometry = Dataset(join(self.path,'geometry_tn.nc'))
         
@@ -255,5 +266,5 @@ class Reader:
         """Reads the longitude and latitude information"""
  
         geodetic = Dataset(join(self.path,'geodetic_' + self.view + '.nc'))
-        self.latitude  = geodetic['latitude_' + self.view][:]
-        self.longitude = geodetic['longitude_' + self.view][:]
+        self.__latitude  = geodetic['latitude_' + self.view][:]
+        self.__longitude = geodetic['longitude_' + self.view][:]

@@ -76,6 +76,13 @@ class TestReader(TestCase):
         r.flag('confidence', 14)
         r.flag('pointing', 14)
         r.flag('bayesian', 14)
+
+    @mock.patch('slstr.reader.Dataset')
+    def test_fire(self, mocked_Dataset):
+        mocked_Dataset.return_value = mock_dataset()
+        r = Reader('xyz', 'in')
+        r._read_tir()
+        r._read_fire()
         
     @mock.patch('slstr.reader.Dataset')
     def test_caching(self, mocked_Dataset):
@@ -105,3 +112,27 @@ class TestReader(TestCase):
         r.reflectance('S2')
         mocked_Dataset.assert_called()
 
+    @mock.patch('slstr.reader.Dataset')
+    def test_radiance(self, mocked_Dataset):
+        mocked_Dataset.return_value = mock_dataset()
+        r1 = Reader('xyz')
+        r1.radiance('S1')
+        r2 = Reader('xyz', 'in')
+        r2.radiance('F1')
+
+    @mock.patch('slstr.reader.Dataset')
+    def test_invalid_views(self, mocked_Dataset):
+        mocked_Dataset.return_value = mock_dataset()
+        r = Reader('xyz','invalid')
+        self.assertRaises(Exception, r.radiance, 'S1')
+        self.assertRaises(Exception, r.radiance, 'F1')
+                
+    @mock.patch('slstr.reader.Dataset')
+    def test_coordinates(self, mocked_Dataset):
+        mocked_Dataset.return_value = mock_dataset()
+        r1 = Reader('xyz')
+        r1.latitude()
+        mocked_Dataset.assert_called()
+        mocked_Dataset.reset_mock()
+        r1.longitude()
+        mocked_Dataset.assert_not_called()
