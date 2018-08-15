@@ -7,7 +7,6 @@ import numpy as np
 
 from netCDF4 import Dataset
 from scipy import interpolate
-from time import time
 from os.path import join
 
 class Reader:
@@ -48,9 +47,11 @@ class Reader:
         self.__first = True
         self.__channels = set()
         self.__image = {}
+        self.__flag = {}
         self.__dtor = 2.0*np.pi/360.
         self.__solar_irradiance = {}
 
+        
     def radiance(self, channel):
         """Return the radiance of a given channel. checks are made to ensure
         that channel is valid. Information is cached so there is no
@@ -72,6 +73,18 @@ class Reader:
             self._read_reflectance(channel)
 
         return self.__image[channel+'r']
+
+    def flag(self, type, offset):
+        """Return an array that has either 1 or 0 depending on if the given bit is set.
+ 
+        type   : A string that can take the values cloud, confidence, pointing and bayesian. 
+        offset : An integer (starting at zero) for which bit to red.
+        """
+        if len(self.__flag)==0:
+            self._read_flags()
+            
+        mask = 1 << offset
+        return (self.__flag[type] & mask) >> offset
         
     def _read_channel(self, channel):
         """Read in a given channel from file.
@@ -82,7 +95,6 @@ class Reader:
         
         if self.__first:
             self._fill_coords()
-            self._read_flags()
 
         valid_views = set()
         if channel in {'S1', 'S2', 'S3'}: # Visible
@@ -134,7 +146,6 @@ class Reader:
             self.read_solar_zenith(s7_bt)
 
             self._fill_coords()
-            self._read_flags()
 
     def read_fire(self):
         """ Read the fire channels"""
@@ -148,7 +159,6 @@ class Reader:
             self.f2_image = f2_bt.variables['F2_BT_' + self.view][:] 
             self.__channels.update({'F1', 'F2'})
             self._fill_coords()
-            self._read_flags()
 
     def read_tir_gains(self):
         valid_tir_views = ['in', 'io']
@@ -173,11 +183,9 @@ class Reader:
             start_offset = cdata.start_offset * float(cdata.resolution.split()[2]) / float(geometry.resolution.split()[2]) - geometry.start_offset
         x = (np.array(range(cdata.dimensions['columns'].size)) - cdata.track_offset) * float(cdata.resolution.split()[1]) / float(geometry.resolution.split()[1]) + geometry.track_offset
         y = np.array(range(cdata.dimensions['rows'].size)) * float(cdata.resolution.split()[2]) / float(geometry.resolution.split()[2]) + start_offset
-        t0 = time()
         f = interpolate.RectBivariateSpline(np.array(range(geometry.dimensions['rows'].size)), np.array(range(geometry.dimensions['columns'].size)), solar_zenith_nonans)
         self.solar_zenith = f(y, x)
         self.__mu0 = np.where(self.solar_zenith < 90, np.cos(self.__dtor * self.solar_zenith), 1.0)
-        #print ('interpolation', time() - t0)
 
     def read_geometry(self, cdata):
 
@@ -238,10 +246,10 @@ class Reader:
     def _read_flags(self):
         """Reads the L1 cloud product variables""" 
         flags                = Dataset(join(self.path,'flags_' + self.view + '.nc'))
-        self.cloud_flag      = flags.variables['cloud_'+self.view][:]  # Basic cloud flag. Contains a set of binary decisions
-        self.confidence_flag = flags.variables['confidence_'+self.view][:] 
-        self.pointing_flag   = flags.variables['pointing_'+self.view][:]
-        self.bayesian_cloud  = flags.variables['bayes_'+self.view][:] # More fancy.
+        self.__flag['cloud']  = flags.variables['cloud_'+self.view][:]  # Basic cloud flag. Contains a set of binary decisions
+        self.__flag['confidence'] = flags.variables['confidence_'+self.view][:] 
+        self.__flag['pointing'] = flags.variables['pointing_'+self.view][:]
+        self.__flag['bayesian']  = flags.variables['bayes_'+self.view][:] # More fancy.
 
     def _fill_coords(self):
         """Reads the longitude and latitude information"""

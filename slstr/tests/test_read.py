@@ -16,7 +16,18 @@ def mock_dataset():
         [1.0, 2.0, 2.0, 2.0, 2.0],
         [1.0, 2.0, 2.0, 2.0, 2.0],
         [2.0, 2.0, 3.0, 3.0, 4.0]])
-    return mock.MagicMock(variables=defaultdict(lambda: a),
+    ai = np.array([
+        [1, 2, 2, 2, 2],
+        [1, 2, 2, 2, 2],
+        [1, 2, 2, 2, 2],
+        [1, 2, 2, 2, 2],
+        [2, 2, 3, 3, 4]])
+    d = defaultdict(lambda: a)
+    d['cloud_an']= ai
+    d['confidence_an']= ai
+    d['pointing_an']= ai
+    d['bayes_an']= ai
+    return mock.MagicMock(variables=d,
                           __getitem__= lambda i,j: a,
                           dimensions =
                             defaultdict(lambda: np.array([0,1,2,3,4])),
@@ -57,6 +68,14 @@ class TestReader(TestCase):
         r = Reader('xyz')
         r.reflectance('S1')
 
+    @mock.patch('slstr.reader.Dataset')
+    def test_flag(self, mocked_Dataset):
+        mocked_Dataset.return_value = mock_dataset()
+        r = Reader('xyz')
+        r.flag('cloud', 14)
+        r.flag('confidence', 14)
+        r.flag('pointing', 14)
+        r.flag('bayesian', 14)
         
     @mock.patch('slstr.reader.Dataset')
     def test_caching(self, mocked_Dataset):
