@@ -1,6 +1,6 @@
 # 
 # Copyright: Imperial College London.
-# Licence  : GSLv3
+# Licence  : GPLv3
 # Created  : July 2018
 #
 import numpy as np
@@ -37,10 +37,7 @@ class Reader:
             self.s6_factor = 1.26
         self.all_channels = set(['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'F1', 'F2'])
         self.tir_channels = set(['S7', 'S8', 'S9', 'F1', 'F2'])
-        # self.channels will contain the channels actually read in.
-        self.channels = set()
 
-        self.image = {}
 
         self.rgb = [0, 0, 0]
         self.latitude = [0, 0]
@@ -49,23 +46,43 @@ class Reader:
         self.confidence_flag = 0
         self.pointing_flag = 0
         self.bayesian_cloud=0
-        self.dtor = 2.0*np.pi/360.
-        self.first = True
-        self.solar_irradiance = {}
 
-    def read_channel(self, channel):
-        """Read in a given channel. Allowed channels are listed in self.all_channels.
-        Will check if the channel is allowed for the given view. Repeated calls for the same
-        channel are allowed and do not carry performance penalty.
+        self.__first = True
+        self.__channels = set()
+        self.__image = {}
+        self.__dtor = 2.0*np.pi/360.
+        self.__solar_irradiance = {}
+
+    def radiance(self, channel):
+        """Return the radiance of a given channel. checks are made to ensure
+        that channel is valid. Information is cached so there is no
+        performance penalty of multiple calls.
         """
 
-        if channel in self.channels:
-            return
+        if not channel in self.__channels:
+            self._read_channel(channel)
+
+        return self.__image[channel]
+        
+    def reflectance(self, channel):
+        """Return the radiance of a given channel. Checks are made to ensure
+        that channel is valid. Information is cached so there is no
+        performance penalty of multiple calls.
+        """
+
+        if not channel+'r' in self.__channels:
+            self._read_reflectance(channel)
+
+        return self.__image[channel+'r']
+        
+    def _read_channel(self, channel):
+        """Read in a given channel from file.
+        """
 
         if channel not in self.all_channels:
             raise Exception('The channel %s is not in the allowed list %s' % (channel, self.all_channels))
         
-        if self.first:
+        if self.__first:
             self._fill_coords()
             self._read_flags()
 
@@ -80,25 +97,21 @@ class Reader:
                             (self.view, channel, valid_vis_views))
 
         rad = Dataset(join(self.path,channel+'_radiance_'+self.view+'.nc'))
-        self.image[channel] = rad.variables[channel+'_radiance_'+self.view][:]
-        if self.first:
+        self.__image[channel] = rad.variables[channel+'_radiance_'+self.view][:]
+        if self.__first:
             self.read_geometry(rad)
 
-        self.channels.add(channel)
-        self.first = False
+        self.__channels.add(channel)
+        self.__first = False
 
-    def read_reflectance(self, channel):
+    def _read_reflectance(self, channel):
         """Read in a given channel and convert the input to a reflectance"""
 
-        if channel+'r' in self.channels:
-            return
+        self._read_solar_irradiance(channel)
+        self.__image[channel+'r'] = self.radiance(channel) / (self.__solar_irradiance[channel] * self.__mu0) * np.pi
+        self.__channels.add(channel+'r')
 
-        self.read_channel(channel)
-        self.read_solar_irradiance(channel)
-        self.image[channel+'r'] = self.image[channel] / (self.solar_irradiance[channel] * self.mu0) * np.pi
-        self.channels.add(channel+'r')
-        
-        
+
     def read_tir(self):
 
         valid_tir_views = ['in', 'io']
@@ -117,7 +130,7 @@ class Reader:
             s9_bt.set_auto_scale(True)
             self.s9_image = s9_bt.variables['S9_BT_' + self.view][:] 
             
-            self.channels.update({'S7', 'S8', 'S9'})
+            self.__channels.update({'S7', 'S8', 'S9'})
             
             #print('read solar zenith (tir)')
             self.read_solar_zenith(s7_bt)
@@ -135,7 +148,7 @@ class Reader:
             f2_bt = Dataset(self.path + 'F2_BT_' + self.view + '.nc')
             f2_bt.set_auto_scale(True)
             self.f2_image = f2_bt.variables['F2_BT_' + self.view][:] 
-            self.channels.update({'F1', 'F2'})
+            self.__channels.update({'F1', 'F2'})
             self._fill_coords()
             self._read_flags()
 
@@ -165,7 +178,7 @@ class Reader:
         t0 = time()
         f = interpolate.RectBivariateSpline(np.array(range(geometry.dimensions['rows'].size)), np.array(range(geometry.dimensions['columns'].size)), solar_zenith_nonans)
         self.solar_zenith = f(y, x)
-        self.mu0 = np.where(self.solar_zenith < 90, np.cos(self.dtor * self.solar_zenith), 1.0)
+        self.__mu0 = np.where(self.solar_zenith < 90, np.cos(self.__dtor * self.solar_zenith), 1.0)
         #print ('interpolation', time() - t0)
 
     def read_geometry(self, cdata):
@@ -203,7 +216,7 @@ class Reader:
  
         f_solz = interpolate.RectBivariateSpline(geometry_rows, geometry_cols, solar_zenith)
         self.solar_zenith = f_solz(y, x)
-        self.mu0 = np.where(self.solar_zenith < 90, np.cos(self.dtor * self.solar_zenith), 1.0)
+        self.__mu0 = np.where(self.solar_zenith < 90, np.cos(self.__dtor * self.solar_zenith), 1.0)
  
         f_sola = interpolate.RectBivariateSpline(geometry_rows, geometry_cols, solar_azimuth)
         self.solar_azimuth = f_sola(y, x)
@@ -218,11 +231,11 @@ class Reader:
         self.sat_azimuth = f_sata(y, x)
 
 
-    def read_solar_irradiance(self, channel):
+    def _read_solar_irradiance(self, channel):
         """Read the solar irradiance as required to obtain reflectance."""
         
         # Solar irradiance values are given for each detector separately, but all have same value, so just take first one for each channel here.
-        self.solar_irradiance[channel] = Dataset(join(self.path,channel+'_quality_'+self.view+'.nc')).variables[channel+'_solar_irradiance_'+self.view][0]
+        self.__solar_irradiance[channel] = Dataset(join(self.path,channel+'_quality_'+self.view+'.nc')).variables[channel+'_solar_irradiance_'+self.view][0]
         
     def plot(self, type='snow'):
         """Plot the data as different types. Allowed ones are 'snow' and 'vis'."""
@@ -237,19 +250,18 @@ class Reader:
         
     def _fill_rgb_snow(self):
         """Fill rgb values for colour scheme highlighting snow"""
-        for ch in {'S1', 'S2', 'S3', 'S5'}: self.read_channel(ch)
-        ndsi = self.image['S5'] - self.image['S1']
-        r = np.ma.where(ndsi.data > 0, self.image['S5'], self.image['S3'])
-        g = np.ma.where(ndsi.data > 0, self.image['S3'], self.image['S2'])
-        b = np.ma.where(ndsi.data > 0, self.image['S2'], self.image['S1'])
+        ndsi = self.radiance('S5') - self.radiance('S1')
+        r = np.ma.where(ndsi.data > 0, self.radiance('S5'), self.radiance('S3'))
+        g = np.ma.where(ndsi.data > 0, self.radiance('S3'), self.radiance('S2'))
+        b = np.ma.where(ndsi.data > 0, self.radiance('S2'), self.radiance('S1'))
         self.rgb = np.ma.dstack((r / r.max(), g / g.max(), b / b.max())).filled(0)
 
     def _fill_rgb_vis(self):
         """Fill rgb values for false colour image making ice clouds blue and liquid clouds white/pink"""
-        for ch in {'S1', 'S2', 'S3'}: self.read_channel(ch)
-        r = self.image['S1']
-        g = self.image['S2']
-        b = self.image['S3']
+        for ch in {'S1', 'S2', 'S3'}: self._read_channel(ch)
+        r = self.radiance('S1')
+        g = self.radiance('S2')
+        b = self.radiance('S3')
         self.rgb = np.ma.dstack((r / r.max(), g / g.max(), b / b.max())).filled(0)
 
     def _read_flags(self):

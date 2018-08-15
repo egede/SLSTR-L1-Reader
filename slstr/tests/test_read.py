@@ -29,15 +29,15 @@ class TestReader(TestCase):
     def test_constructor(self):
         r = Reader('xyz')
 
-    @mock.patch('slstr.reader.Reader.read_channel')
+    @mock.patch('slstr.reader.Reader._read_channel')
     def test_read_argument(self,mocked_read):
         r = Reader('xyz')
-        r.read_channel('fake')
+        r._read_channel('fake')
         mocked_read.assert_called_once_with('fake')
     
     def test_invalid_channel(self):
         r = Reader('xyz')
-        self.assertRaises(Exception, r.read_channel, 'invalid')
+        self.assertRaises(Exception, r._read_channel, 'invalid')
 
     @mock.patch('slstr.reader.Dataset')
     def test_Dataset(self, mocked_Dataset):
@@ -49,31 +49,45 @@ class TestReader(TestCase):
     def test_read_channel(self, mocked_Dataset):
         mocked_Dataset.return_value = mock_dataset()
         r = Reader('xyz')
-        r.read_channel('S1')
+        r._read_channel('S1')
 
     @mock.patch('slstr.reader.Dataset')
-    def test_read_reflectance(self, mocked_Dataset):
+    def test_reflectance(self, mocked_Dataset):
         mocked_Dataset.return_value = mock_dataset()
         r = Reader('xyz')
-        r.read_reflectance('S1')
+        r.reflectance('S1')
 
         
     @mock.patch('slstr.reader.Dataset')
     def test_caching(self, mocked_Dataset):
         mocked_Dataset.return_value = mock_dataset()
         r = Reader('xyz')
-        r.read_channel('S1')
+        r.radiance('S1')
 
         # Test that caching works
         mocked_Dataset.reset_mock()
-        r.read_channel('S1')
+        r.radiance('S1')
         mocked_Dataset.assert_not_called()
 
         # Test no caching if different channel
         mocked_Dataset.reset_mock()
-        r.read_channel('S2')
+        r.radiance('S2')
         mocked_Dataset.assert_called()
 
+        r.reflectance('S1')
+
+        # Test that caching works
+        mocked_Dataset.reset_mock()
+        r.reflectance('S1')
+        mocked_Dataset.assert_not_called()
+
+        # Test no caching if different channel
+        mocked_Dataset.reset_mock()
+        r.reflectance('S2')
+        mocked_Dataset.assert_called()
+
+        
+        
     @mock.patch('slstr.reader.Dataset')
     @mock.patch('slstr.reader.plt')
     def test_plot(self, mocked_plt, mocked_Dataset):
