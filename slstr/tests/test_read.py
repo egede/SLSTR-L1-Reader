@@ -52,6 +52,13 @@ class TestReader(TestCase):
         r.read_channel('S1')
 
     @mock.patch('slstr.reader.Dataset')
+    def test_read_reflectance(self, mocked_Dataset):
+        mocked_Dataset.return_value = mock_dataset()
+        r = Reader('xyz')
+        r.read_reflectance('S1')
+
+        
+    @mock.patch('slstr.reader.Dataset')
     def test_caching(self, mocked_Dataset):
         mocked_Dataset.return_value = mock_dataset()
         r = Reader('xyz')
