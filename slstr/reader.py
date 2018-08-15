@@ -4,7 +4,6 @@
 # Created  : July 2018
 #
 import numpy as np
-import matplotlib.pyplot as plt
 
 from netCDF4 import Dataset
 from scipy import interpolate
@@ -39,7 +38,6 @@ class Reader:
         self.tir_channels = set(['S7', 'S8', 'S9', 'F1', 'F2'])
 
 
-        self.rgb = [0, 0, 0]
         self.latitude = [0, 0]
         self.longitude = [0, 0]
         self.cloud_flag = 0
@@ -237,33 +235,6 @@ class Reader:
         # Solar irradiance values are given for each detector separately, but all have same value, so just take first one for each channel here.
         self.__solar_irradiance[channel] = Dataset(join(self.path,channel+'_quality_'+self.view+'.nc')).variables[channel+'_solar_irradiance_'+self.view][0]
         
-    def plot(self, type='snow'):
-        """Plot the data as different types. Allowed ones are 'snow' and 'vis'."""
-        if type == 'snow':
-            self._fill_rgb_snow()
-        elif type == 'vis':
-            self._fill_rgb_vis()
-        else:
-            print('Allowed types are "snow" and "vis"')
-        p = plt.imshow(self.rgb)
-        plt.show()
-        
-    def _fill_rgb_snow(self):
-        """Fill rgb values for colour scheme highlighting snow"""
-        ndsi = self.radiance('S5') - self.radiance('S1')
-        r = np.ma.where(ndsi.data > 0, self.radiance('S5'), self.radiance('S3'))
-        g = np.ma.where(ndsi.data > 0, self.radiance('S3'), self.radiance('S2'))
-        b = np.ma.where(ndsi.data > 0, self.radiance('S2'), self.radiance('S1'))
-        self.rgb = np.ma.dstack((r / r.max(), g / g.max(), b / b.max())).filled(0)
-
-    def _fill_rgb_vis(self):
-        """Fill rgb values for false colour image making ice clouds blue and liquid clouds white/pink"""
-        for ch in {'S1', 'S2', 'S3'}: self._read_channel(ch)
-        r = self.radiance('S1')
-        g = self.radiance('S2')
-        b = self.radiance('S3')
-        self.rgb = np.ma.dstack((r / r.max(), g / g.max(), b / b.max())).filled(0)
-
     def _read_flags(self):
         """Reads the L1 cloud product variables""" 
         flags                = Dataset(join(self.path,'flags_' + self.view + '.nc'))
@@ -278,4 +249,3 @@ class Reader:
         geodetic = Dataset(join(self.path,'geodetic_' + self.view + '.nc'))
         self.latitude  = geodetic['latitude_' + self.view][:]
         self.longitude = geodetic['longitude_' + self.view][:]
-

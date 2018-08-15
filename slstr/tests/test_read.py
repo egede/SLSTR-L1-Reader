@@ -86,22 +86,3 @@ class TestReader(TestCase):
         r.reflectance('S2')
         mocked_Dataset.assert_called()
 
-        
-        
-    @mock.patch('slstr.reader.Dataset')
-    @mock.patch('slstr.reader.plt')
-    def test_plot(self, mocked_plt, mocked_Dataset):
-        mocked_Dataset.return_value = mock_dataset()
-        r = Reader('xyz')
-        r.plot('vis')
-        mocked_plt.imshow.assert_called_once()
-        mocked_plt.show.assert_called_once()
-
-        mocked_plt.reset_mock()
-        r.plot()
-        mocked_plt.imshow.assert_called_once()
-        mocked_plt.show.assert_called_once()
-        
-        mocked_plt.reset_mock()
-        r.plot('invalid')
-        mocked_plt.assert_not_called()
